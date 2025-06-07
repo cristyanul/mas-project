@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDCN - Intelligent Delivery Coordination Network</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Header -->
+    <div class="dashboard-header">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <h1 class="display-5">Intelligent Delivery Coordination Network</h1>
+                <div>
+                    <span class="refresh-button" onclick="manualRefresh()" title="Refresh Dashboard">
+                        <i class="bi bi-arrow-repeat fs-3"></i>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Key Metrics -->
+        <div class="row mb-4" id="metrics-section">
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Orders Today</h5>
+                        <p class="metrics-value metrics-delivered">{{ summary.delivered_today }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Pending Deliveries</h5>
+                        <p class="metrics-value metrics-pending">{{ deliveries|length }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Completed Deliveries</h5>
+                        <p class="metrics-value">{{ delivery_history|length }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Notifications</h5>
+                        <p class="metrics-value metrics-notifications">{{ notifications|length }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Left Column -->
+            <div class="col-md-6">
+                <!-- Place Order Form -->
+                <div class="card" id="order-section">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Place an Order</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ url_for('place_order') }}" method="POST" onsubmit="return validateOrder()">
+                            <div class="mb-3">
+                                <label for="order-item" class="form-label">Item Name</label>
+                                <select class="form-select" id="order-item" name="item" required onchange="updateQuantityLimit()">
+                                    <option value="">Select an item</option>
+                                    {% for item, stock in inventory.items() %}
+                                        <option value="{{ item }}" data-stock="{{ stock }}">{{ item }} ({{ stock }} in stock)</option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">Select from available inventory items</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="order-quantity" class="form-label">Quantity</label>
+                                <input type="number" class="form-control" id="order-quantity" name="quantity" min="1" max="1" value="1" required disabled>
+                                <div class="form-text" id="order-quantity-help">Please select an item first</div>
+                            </div>
+                            <div class="mb-3" id="stock-alert" style="display: none;">
+                                <div class="alert alert-warning" role="alert">
+                                    <i class="bi bi-exclamation-triangle"></i> Insufficient stock for this quantity!
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" id="order-submit-btn" disabled>Place Order</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Inventory Management -->
+                <div class="card" id="inventory-section">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">Inventory Management</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ url_for('add_inventory') }}" method="POST">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="inventory-item" class="form-label">Item Name</label>
+                                    <input type="text" class="form-control" id="inventory-item" name="item" placeholder="Item name" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="inventory-quantity" class="form-label">Quantity</label>
+                                    <input type="number" class="form-control" id="inventory-quantity" name="quantity" min="1" value="1" required>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-success">Add to Inventory</button>
+                            </div>
+                        </form>
+
+                        <hr>
+
+                        <h6 class="fw-bold mb-3">Current Inventory</h6>
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Quantity</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item, count in inventory.items() %}
+                                    <tr>
+                                        <td>{{ item }}</td>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <span class="inventory-count {{ 'low-stock' if count < 3 else 'good-stock' }} me-2"
+                                                      id="quantity-display-{{ item }}">{{ count }}</span>
+                                                <input type="number" class="form-control form-control-sm edit-quantity"
+                                                       id="quantity-input-{{ item }}" value="{{ count }}" min="0"
+                                                       style="width: 70px; display: none;">
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {% if count <= 0 %}
+                                                <span class="badge bg-danger">Out of Stock</span>
+                                            {% elif count < 3 %}
+                                                <span class="badge bg-warning text-dark">Low Stock</span>
+                                            {% else %}
+                                                <span class="badge bg-success">In Stock</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <button type="button" class="btn btn-sm btn-outline-primary edit-btn"
+                                                        data-item="{{ item }}" onclick="editItem('{{ item }}')">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-success save-btn"
+                                                        data-item="{{ item }}" onclick="saveItem('{{ item }}')"
+                                                        style="display: none;">
+                                                    <i class="bi bi-check"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary cancel-btn"
+                                                        data-item="{{ item }}" onclick="cancelEdit('{{ item }}')"
+                                                        style="display: none;">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger delete-btn"
+                                                        data-item="{{ item }}" onclick="deleteItem('{{ item }}')">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div class="col-md-6">
+                <!-- Deliveries -->
+                <div class="card" id="deliveries-section">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">Active Deliveries</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if deliveries %}
+                            <div class="list-group">
+                                {% for delivery in deliveries %}
+                                <div class="list-group-item mb-2 p-3 rounded shadow-sm delivery-notification">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <div class="delivery-icon me-3">
+                                            <i class="bi bi-box-seam fs-3 text-primary"></i>
+                                        </div>
+                                        <div>
+                                            <h6 class="mb-1">{{ delivery.order_display or delivery.item }}</h6>
+                                            <div class="text-muted small">
+                                                Estimated delivery: <span class="delivery-eta"
+                                                data-delivery-time="{{ delivery.estimated_delivery|int }}"
+                                                data-start-time="{{ delivery.start_time|int }}"
+                                                data-delivery-duration="{{ delivery.delivery_duration }}"></span>
+                                            </div>
+                                        </div>
+                                        <span class="ms-auto badge bg-primary status-badge">{{ delivery.status }}</span>
+                                    </div>
+
+                                    <div class="progress" style="height: 5px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success delivery-progress"
+                                            role="progressbar"
+                                            data-delivery-time="{{ delivery.estimated_delivery|int }}"
+                                            data-start-time="{{ delivery.start_time|int }}"
+                                            data-delivery-duration="{{ delivery.delivery_duration }}"
+                                            style="width: 0%">
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="text-center text-muted">No active deliveries</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Customer Notifications -->
+                <div class="card">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0">Customer Notifications</h5>
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        {% if notifications %}
+                            {% for notification in notifications|reverse %}
+                            <div class="notification-item">
+                                <div class="d-flex justify-content-between">
+                                    <div>{{ notification.message }}</div>
+                                    <small class="text-muted">
+                                        {{ notification.time|int }}
+                                    </small>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-center text-muted">No notifications yet</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Monitor Summary -->
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">Delivery Monitor</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="fs-5 mb-3">Today's Summary</p>
+                        <div class="alert alert-light">
+                            <strong id="today-summary-count">{{ summary.delivered_today }}</strong> orders delivered today
+                        </div>
+
+                        <hr>
+
+                        {% if delivery_history %}
+                            <h6 class="fw-bold mb-2">Recent Deliveries</h6>
+                            <div id="delivery-history-container" style="max-height: 200px; overflow-y: auto;">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="delivery-history-tbody">
+                                        {% for log in delivery_history|reverse %}
+                                        <tr>
+                                            <td>{{ log.order_display or log.item }}</td>
+                                            <td><small class="text-muted"><time>{{ log.delivery_time|int }}</time></small></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div id="delivery-history-container">
+                                <p class="text-center text-muted">No delivery history</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Start Guide Overlay -->
+    <div class="quickstart-overlay" id="quickstart-overlay">
+        <div class="quickstart-tooltip" id="quickstart-tooltip">
+            <div class="step-counter" id="step-counter">1</div>
+            <h5 id="tooltip-title">Welcome to IDCN!</h5>
+            <p id="tooltip-content">This is your delivery coordination dashboard. Let's take a quick tour to get you started.</p>
+            <div class="quickstart-controls">
+                <div class="quickstart-progress" id="quickstart-progress">1 of 6</div>
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary me-2" onclick="skipQuickStart()">Skip</button>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="nextStep()">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="my-5 text-center text-muted">
+        <p>Intelligent Delivery Coordination Network (IDCN) &copy; 2025</p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Quick Start Guide Configuration
+        const quickStartSteps = [
+            {
+                target: '#metrics-section',
+                title: 'Dashboard Metrics',
+                content: 'These cards show your key performance indicators: orders delivered today, pending deliveries, completed deliveries, and customer notifications.',
+                position: { top: '20%', left: '50%', transform: 'translateX(-50%)' }
+            },
+            {
+                target: '#order-section',
+                title: 'Place Orders',
+                content: 'Use this form to place new orders. Just select an item and input a quantity, then click "Place Order" to start the delivery process.',
+                position: { top: '50%', left: '20%' }
+            },
+            {
+                target: '#inventory-section',
+                title: 'Inventory Management',
+                content: 'Manage your inventory here. Add new items, edit quantities by clicking the pencil icon, or delete items with the trash icon.',
+                position: { top: '70%', left: '20%' }
+            },
+            {
+                target: '#deliveries-section',
+                title: 'Active Deliveries',
+                content: 'Watch your deliveries in real-time! Progress bars show delivery status and countdown timers show remaining time.',
+                position: { top: '50%', right: '20%' }
+            },
+            {
+                target: '.refresh-button',
+                title: 'Manual Refresh',
+                content: 'Click this button to manually refresh the page. The dashboard also auto-refreshes, so there is no need to do this often.',
+                position: { top: '15%', right: '10%' }
+            },
+            {
+                target: 'body',
+                title: 'You\'re all set!',
+                content: 'The dashboard updates automatically, so you can watch your delivery network in action. Try placing an order to see the agents in action!',
+                position: { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
+            }
+        ];
+
+        let currentStep = 0;
+        let currentHighlight = null;
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+        }
+
+        function setCookie(name, value, days = 365) {
+            const expires = new Date(Date.now() + days * 864e5).toUTCString();
+            document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
+        }
+
+        function shouldShowQuickStart() {
+            return !getCookie('idcn_quickstart_completed');
+        }
+
+        function startQuickStart() {
+            if (!shouldShowQuickStart()) return;
+
+            quickStartActive = true;
+            stopLiveUpdates();
+
+            currentStep = 0;
+            document.getElementById('quickstart-overlay').style.display = 'block';
+            showStep(currentStep);
+        }
+
+        function showStep(stepIndex) {
+            const step = quickStartSteps[stepIndex];
+            const tooltip = document.getElementById('quickstart-tooltip');
+            const counter = document.getElementById('step-counter');
+            const title = document.getElementById('tooltip-title');
+            const content = document.getElementById('tooltip-content');
+            const progress = document.getElementById('quickstart-progress');
+
+            if (currentHighlight) {
+                currentHighlight.classList.remove('target-highlight');
+            }
+
+            if (step.target !== 'body') {
+                const target = document.querySelector(step.target);
+                if (target) {
+                    target.classList.add('target-highlight');
+                    currentHighlight = target;
+                }
+            }
+
+            counter.textContent = stepIndex + 1;
+            title.textContent = step.title;
+            content.textContent = step.content;
+            progress.textContent = `${stepIndex + 1} of ${quickStartSteps.length}`;
+
+            tooltip.style.top = step.position.top || 'auto';
+            tooltip.style.left = step.position.left || 'auto';
+            tooltip.style.right = step.position.right || 'auto';
+            tooltip.style.bottom = step.position.bottom || 'auto';
+            tooltip.style.transform = step.position.transform || 'none';
+
+            const nextButton = tooltip.querySelector('.btn-primary');
+            nextButton.textContent = stepIndex === quickStartSteps.length - 1 ? 'Finish' : 'Next';
+        }
+
+        function nextStep() {
+            if (currentStep < quickStartSteps.length - 1) {
+                currentStep++;
+                showStep(currentStep);
+            } else {
+                finishQuickStart();
+            }
+        }
+
+        function skipQuickStart() {
+            finishQuickStart();
+        }
+
+        function finishQuickStart() {
+            if (currentHighlight) {
+                currentHighlight.classList.remove('target-highlight');
+            }
+
+            document.getElementById('quickstart-overlay').style.display = 'none';
+
+            setCookie('idcn_quickstart_completed', 'true');
+
+            quickStartActive = false;
+            startLiveUpdates();
+        }
+
+        // Application Initialization
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(startQuickStart, 1000);
+
+            startLiveUpdates();
+
+            const timestamps = document.querySelectorAll('.text-muted small time');
+            timestamps.forEach(el => {
+                const timestamp = parseInt(el.innerText.trim());
+                if (!isNaN(timestamp)) {
+                    const date = new Date(timestamp * 1000);
+                    el.innerText = date.toLocaleTimeString();
+                }
+            });
+
+            updateDeliveryProgress();
+
+            setInterval(updateDeliveryProgress, 1000);
+
+            const quantityInput = document.getElementById('order-quantity');
+            if (quantityInput) {
+                quantityInput.addEventListener('input', function() {
+                    const itemSelect = document.getElementById('order-item');
+                    const stockAlert = document.getElementById('stock-alert');
+
+                    if (itemSelect.value) {
+                        const selectedOption = itemSelect.options[itemSelect.selectedIndex];
+                        const stock = parseInt(selectedOption.dataset.stock);
+                        const requestedQuantity = parseInt(this.value);
+
+                        if (requestedQuantity > stock) {
+                            stockAlert.style.display = 'block';
+                        } else {
+                            stockAlert.style.display = 'none';
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+
+</body>
+</html>

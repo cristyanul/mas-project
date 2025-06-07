@@ -262,11 +262,6 @@ function updateNotifications(notifications) {
     const notificationsContainer = document.querySelector('.card-header.bg-warning').nextElementSibling;
     if (!notificationsContainer) return;
 
-    const currentNotificationCount = notificationsContainer.querySelectorAll('.notification-item').length;
-    if (currentNotificationCount === notifications.length && notifications.length > 0) {
-        return;
-    }
-
     if (notifications.length === 0) {
         notificationsContainer.innerHTML = '<p class="text-center text-muted">No notifications yet</p>';
         return;
@@ -298,7 +293,6 @@ function updateDeliveryHistory(deliveryHistory) {
     }
 
     historyContainer.innerHTML = `
-        <h6 class="fw-bold mb-2">Recent Deliveries</h6>
         <div style="max-height: 200px; overflow-y: auto;">
             <table class="table table-sm">
                 <thead>
